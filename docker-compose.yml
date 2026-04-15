@@ -1,0 +1,41 @@
+services:
+  triton:
+    build: ./triton
+    image: voicebot-triton:latest
+    container_name: voicebot-triton
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    shm_size: 1g
+    ports:
+      - "8000:8000"   # HTTP (debug)
+      - "8001:8001"   # gRPC
+      - "8002:8002"   # Metrics
+    volumes:
+      - ./triton/parakeet_asr:/model_repo/parakeet_asr
+      - ./triton/mms_tts:/model_repo/mms_tts
+      - ./triton/qwen35_llm:/model_repo/qwen35_llm
+      - ./opt/models/parakeet_asr:/opt/models/parakeet_asr
+      - ./opt/models/mms_tts_vie:/opt/models/mms_tts_vie
+      - ${HOME}/.cache/huggingface:/opt/models/hf_cache
+    command: tritonserver --model-repository=/model_repo
+
+  redis:
+    image: redis:7-alpine
+    container_name: voicebot-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    build: ./api
+    container_name: voicebot-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./api/.env
+    depends_on:
+      - triton
+      - redis

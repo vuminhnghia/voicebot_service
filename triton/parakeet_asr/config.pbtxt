@@ -1,0 +1,40 @@
+name: "parakeet_asr"
+backend: "python"
+max_batch_size: 4
+
+input [
+  {
+    name: "audio_input"
+    data_type: TYPE_FP32
+    dims: [-1]
+  },
+  {
+    name: "sample_rate"
+    data_type: TYPE_INT32
+    dims: [1]
+    optional: true
+  }
+]
+
+output [
+  {
+    name: "transcription"
+    data_type: TYPE_STRING
+    dims: [1]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+    gpus: [0]
+  }
+]
+
+parameters: [
+  {
+    key: "model_dir"
+    value: { string_value: "/opt/models/parakeet_asr" }
+  }
+]

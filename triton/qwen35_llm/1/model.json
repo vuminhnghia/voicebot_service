@@ -1,0 +1,6 @@
+{
+    "model": "Qwen/Qwen3-4B-AWQ",
+    "gpu_memory_utilization": 0.85,
+    "max_model_len": 4096,
+    "quantization": "awq"
+}

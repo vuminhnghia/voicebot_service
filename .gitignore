@@ -1,0 +1,29 @@
+# Model weights và ONNX exports (quá lớn để commit)
+opt/
+
+# Build artifacts
+build.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Virtual environment
+.venv/
+
+# HuggingFace cache
+hf_cache/
+
+# TensorRT cache (sinh ra khi chạy container)
+*.trt
+*.engine
+
+# API secrets
+api/.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
