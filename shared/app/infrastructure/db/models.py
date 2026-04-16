@@ -19,5 +19,6 @@ class TaskModel(Base):
     input_object_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     output_object_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     webhook_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    output_mode: Mapped[str | None] = mapped_column(String(10), nullable=True, default="audio")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

@@ -59,6 +59,7 @@ async def lifespan(app: FastAPI):
         settings.seaweedfs_bucket,
         settings.seaweedfs_access_key,
         settings.seaweedfs_secret_key,
+        public_endpoint=settings.seaweedfs_public_endpoint,
     )
     await storage.ensure_bucket()
 

@@ -22,11 +22,11 @@ class TritonASRAdapter(ASRPort):
     def _infer(self, audio_bytes: bytes) -> str:
         audio, sr = self._decode_audio(audio_bytes)
 
-        audio_input = httpclient.InferInput("audio_input", list(audio.shape), "FP32")
-        audio_input.set_data_from_numpy(audio)
+        audio_input = httpclient.InferInput("audio_input", [1, audio.shape[0]], "FP32")
+        audio_input.set_data_from_numpy(audio[np.newaxis, :])
 
-        sr_input = httpclient.InferInput("sample_rate", [1], "INT32")
-        sr_input.set_data_from_numpy(np.array([sr], dtype=np.int32))
+        sr_input = httpclient.InferInput("sample_rate", [1, 1], "INT32")
+        sr_input.set_data_from_numpy(np.array([[sr]], dtype=np.int32))
 
         result = self._client.infer(
             "parakeet_asr",

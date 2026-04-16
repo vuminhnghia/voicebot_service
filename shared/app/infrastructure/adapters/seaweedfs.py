@@ -10,15 +10,28 @@ from app.domain.ports.object_storage import ObjectStoragePort
 
 
 class SeaweedFSAdapter(ObjectStoragePort):
-    def __init__(self, endpoint: str, bucket: str, access_key: str, secret_key: str) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        bucket: str,
+        access_key: str,
+        secret_key: str,
+        public_endpoint: str | None = None,
+    ) -> None:
         self._bucket = bucket
-        self._client = Session().client(
-            "s3",
-            endpoint_url=endpoint,
+        client_kwargs = dict(
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name="us-east-1",
             config=Config(s3={"addressing_style": "path"}),
+        )
+        self._client = Session().client("s3", endpoint_url=endpoint, **client_kwargs)
+        # Separate client for presigning so URLs point to the public-facing host
+        presign_url = public_endpoint or endpoint
+        self._presign_client = (
+            Session().client("s3", endpoint_url=presign_url, **client_kwargs)
+            if presign_url != endpoint
+            else self._client
         )
 
     async def _run(self, func, *args, **kwargs):
@@ -50,3 +63,11 @@ class SeaweedFSAdapter(ObjectStoragePort):
 
     async def delete(self, key: str) -> None:
         await self._run(self._client.delete_object, Bucket=self._bucket, Key=key)
+
+    async def presign(self, key: str, ttl: int = 3600) -> str:
+        return await self._run(
+            self._presign_client.generate_presigned_url,
+            "get_object",
+            Params={"Bucket": self._bucket, "Key": key},
+            ExpiresIn=ttl,
+        )

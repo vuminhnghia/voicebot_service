@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel
@@ -19,5 +20,6 @@ class TaskResult(BaseModel):
     status: TaskStatus
     transcript: str | None = None
     response: str | None = None
-    has_audio: bool = False
+    audio_url: str | None = None
+    audio_expires_at: datetime | None = None
     error: str | None = None

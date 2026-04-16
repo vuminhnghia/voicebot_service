@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     postgres_url: str = "postgresql+asyncpg://voicebot:voicebot@postgres:5432/voicebot"
     rabbitmq_url: str = "amqp://voicebot:voicebot@rabbitmq:5672/"
     seaweedfs_endpoint: str = "http://seaweedfs:8333"
+    seaweedfs_public_endpoint: str | None = None  # public-facing URL for presigned URLs; defaults to seaweedfs_endpoint
     seaweedfs_bucket: str = "voicebot"
     seaweedfs_access_key: str = "any"
     seaweedfs_secret_key: str = "any"

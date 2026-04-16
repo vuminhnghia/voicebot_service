@@ -1,4 +1,6 @@
-import io
+import asyncio
+import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -11,9 +13,11 @@ from app.infrastructure.adapters.redis_cache import RedisCache
 from app.infrastructure.adapters.seaweedfs import SeaweedFSAdapter
 from app.rate_limit import limiter
 from app.schemas.task import TaskCreated, TaskResult, TaskStatus
-from app.schemas.voice import TextChatRequest
+from app.schemas.voice import OutputMode, TextChatRequest
 
 router = APIRouter(prefix="/v1", tags=["voice"])
+
+AUDIO_URL_TTL = 3600  # presigned URL valid for 1 hour
 
 SUPPORTED_CONTENT_TYPES = {
     "audio/wav",
@@ -32,10 +36,11 @@ SUPPORTED_CONTENT_TYPES = {
 async def voice_chat(
     request: Request,
     file: UploadFile = File(..., description="Audio file (WAV, MP3, M4A)"),
+    output_mode: OutputMode = Form(OutputMode.audio, description="text = ASR+LLM only; audio = ASR+LLM+TTS"),
     webhook_url: str | None = Form(None, description="URL to POST result on completion"),
     _: str = Depends(verify_api_key),
 ):
-    """Submit a voice pipeline job (ASR → LLM → TTS). Poll /v1/tasks/{task_id} for result."""
+    """Submit a voice pipeline job. Poll /v1/tasks/{task_id} for result."""
     if file.content_type not in SUPPORTED_CONTENT_TYPES:
         raise HTTPException(
             status_code=415,
@@ -43,7 +48,7 @@ async def voice_chat(
         )
     uc: VoicePipelineUseCase = request.app.state.voice_pipeline
     audio_bytes = await file.read()
-    task_id = await uc.submit(audio_bytes, webhook_url)
+    task_id = await uc.submit(audio_bytes, webhook_url, output_mode)
     return TaskCreated(task_id=task_id)
 
 
@@ -67,7 +72,7 @@ async def get_task(
     request: Request,
     _: str = Depends(verify_api_key),
 ):
-    """Poll task status and result. Checks Redis cache first, falls back to Postgres."""
+    """Poll task status and result. Returns audio_url (presigned, 1h TTL) when audio is ready."""
     cache: RedisCache = request.app.state.cache
     data = await cache.get(task_id)
     if data is None:
@@ -79,37 +84,67 @@ async def get_task(
             "status": data["status"],
             "transcript": data.get("transcript"),
             "response": data.get("response"),
-            "has_audio": data.get("has_audio", False),
+            "output_object_key": data.get("output_object_key"),
             "error": data.get("error"),
         })
+
+    audio_url = None
+    audio_expires_at = None
+    if data.get("output_object_key"):
+        storage: SeaweedFSAdapter = request.app.state.storage
+        audio_url = await storage.presign(data["output_object_key"], ttl=AUDIO_URL_TTL)
+        audio_expires_at = datetime.now(timezone.utc) + timedelta(seconds=AUDIO_URL_TTL)
+
     return TaskResult(
         task_id=task_id,
         status=data["status"],
         transcript=data.get("transcript"),
         response=data.get("response"),
-        has_audio=data.get("has_audio", False),
+        audio_url=audio_url,
+        audio_expires_at=audio_expires_at,
         error=data.get("error"),
     )
 
 
-@router.get("/tasks/{task_id}/audio")
+@router.get("/tasks/{task_id}/stream")
 @limiter.limit("30/minute")
-async def get_task_audio(
+async def stream_task_events(
     task_id: str,
     request: Request,
     _: str = Depends(verify_api_key),
 ):
-    """Download synthesized WAV audio for a completed voice task."""
+    """SSE stream of real-time task events.
+
+    Events:
+    - **transcript** — ASR result available (`{"type":"transcript","text":"..."}`)
+    - **audio_chunk** — TTS chunk ready (`{"type":"audio_chunk","index":0,"sentence":"...","audio_url":"...","audio_expires_at":"..."}`)
+    - **complete** — pipeline finished (`{"type":"complete","transcript":"...","response":"..."}`)
+    - **error** — pipeline failed (`{"type":"error","message":"..."}`)
+    """
+    cache: RedisCache = request.app.state.cache
     repo: TaskRepositoryPort = request.app.state.task_repo
-    data = await repo.get(task_id)
+
+    # Verify task exists before opening the stream
+    data = await cache.get(task_id)
     if data is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if data.get("status") != TaskStatus.completed:
-        raise HTTPException(status_code=409, detail="Task not completed yet")
-    if not data.get("output_object_key"):
-        raise HTTPException(status_code=404, detail="No audio for this task")
-    storage: SeaweedFSAdapter = request.app.state.storage
-    audio = await storage.get(data["output_object_key"])
-    if audio is None:
-        raise HTTPException(status_code=404, detail="Audio expired or not found")
-    return StreamingResponse(io.BytesIO(audio), media_type="audio/wav")
+        db_data = await repo.get(task_id)
+        if db_data is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+    async def event_generator():
+        try:
+            async for event in cache.iter_events(task_id, timeout_s=120):
+                event_type = event.get("type", "message")
+                yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
+        except asyncio.CancelledError:
+            return
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

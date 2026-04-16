@@ -15,8 +15,8 @@ class TritonTTSAdapter(TTSPort):
         self._client = httpclient.InferenceServerClient(url=triton_url)
 
     def _infer(self, text: str) -> bytes:
-        text_np = np.array([text.encode("utf-8")], dtype=object)
-        text_input = httpclient.InferInput("text_input", [1], "BYTES")
+        text_np = np.array([[text.encode("utf-8")]], dtype=object)
+        text_input = httpclient.InferInput("text_input", [1, 1], "BYTES")
         text_input.set_data_from_numpy(text_np)
 
         result = self._client.infer(

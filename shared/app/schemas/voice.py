@@ -1,4 +1,11 @@
+from enum import Enum
+
 from pydantic import BaseModel
+
+
+class OutputMode(str, Enum):
+    text = "text"
+    audio = "audio"
 
 
 class TextChatRequest(BaseModel):
