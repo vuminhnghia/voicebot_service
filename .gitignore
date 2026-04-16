@@ -9,6 +9,7 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+*.egg-info/
 
 # Virtual environment
 .venv/
@@ -20,8 +21,9 @@ hf_cache/
 *.trt
 *.engine
 
-# API secrets
-api/.env
+# Secrets
+.env
+services/api/.env
 
 # IDE
 .idea/

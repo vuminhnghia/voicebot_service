@@ -1,0 +1,123 @@
+{
+  "title": "Voicebot Overview",
+  "uid": "voicebot-overview",
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Task Submit Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (task_type) (rate(voicebot_task_total{status=\"submitted\"}[5m]))",
+          "legendFormat": "{{task_type}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Task Completed Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (task_type) (rate(voicebot_task_total{status=\"completed\"}[5m]))",
+          "legendFormat": "{{task_type}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Task Failed Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (task_type) (rate(voicebot_task_total{status=\"failed\"}[5m]))",
+          "legendFormat": "{{task_type}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Task Duration p50 / p95 / p99 (voice)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.50, sum(rate(voicebot_task_duration_seconds_bucket{task_type=\"voice\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum(rate(voicebot_task_duration_seconds_bucket{task_type=\"voice\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, sum(rate(voicebot_task_duration_seconds_bucket{task_type=\"voice\"}[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "API HTTP Request Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (handler, status_code) (rate(http_requests_total[5m]))",
+          "legendFormat": "{{handler}} {{status_code}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "API HTTP Latency p95",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, handler))",
+          "legendFormat": "{{handler}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "RabbitMQ Queue Depth",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rabbitmq_queue_messages{queue=~\"voicebot.*\"}",
+          "legendFormat": "{{queue}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Application Logs",
+      "type": "logs",
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 10 },
+      "targets": [
+        {
+          "datasource": "Loki",
+          "expr": "{service=~\"api|worker\"}",
+          "legendFormat": ""
+        }
+      ]
+    }
+  ]
+}

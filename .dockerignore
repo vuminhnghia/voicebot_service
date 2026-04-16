@@ -1,0 +1,9 @@
+opt/
+build.log
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.venv
+**/*.trt
+**/*.engine

@@ -1,0 +1,20 @@
+{
+  "identities": [
+    {
+      "name": "voicebot",
+      "credentials": [
+        {
+          "accessKey": "voicebot-access-key",
+          "secretKey": "voicebot-secret-key-change-in-prod"
+        }
+      ],
+      "actions": [
+        "Admin",
+        "Read",
+        "Write",
+        "List",
+        "Tagging"
+      ]
+    }
+  ]
+}
