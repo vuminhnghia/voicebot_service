@@ -1,4 +1,4 @@
 {
   "pythonVersion": "3.12",
-  "extraPaths": ["shared"]
+  "extraPaths": ["shared", "services/api", "services/worker"]
 }

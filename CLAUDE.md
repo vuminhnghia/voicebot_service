@@ -8,13 +8,15 @@ Async pipeline with FastAPI (API) + Worker (consumer) communicating via RabbitMQ
 ```
 voicebot_service/
 ├── docker-compose.yml          # All 11 services
+├── justfile                    # Developer commands (just --list)
 ├── .dockerignore               # Excludes opt/ (model weights) from build context
-├── pyrightconfig.json          # extraPaths: ["shared"] for IDE import resolution
+├── pyrightconfig.json          # extraPaths: ["shared", "services/api", "services/worker"]
+├── pyproject.toml              # uv workspace root + dev tools (pytest, ruff, pyright)
 │
 ├── shared/                     # Shared Python package (merged into both api & worker via Docker COPY)
-│   ├── pyproject.toml          # Single source of dependencies for api & worker
+│   ├── pyproject.toml          # Runtime deps for api & worker (voicebot-shared, package=false)
 │   ├── alembic.ini / alembic/  # DB migrations
-│   └── app/
+│   └── app/                    # Namespace package (no __init__.py — see Import Resolution below)
 │       ├── config.py           # Pydantic Settings (reads from .env)
 │       ├── logging_config.py   # structlog JSON setup
 │       ├── metrics.py          # Prometheus counters/histograms
@@ -26,15 +28,19 @@ voicebot_service/
 ├── services/
 │   ├── api/                    # FastAPI service
 │   │   ├── Dockerfile          # Build context = repo root (needs shared/ + services/api/)
+│   │   ├── pyproject.toml      # uv workspace member (virtual, no deps)
 │   │   ├── entrypoint.sh       # Runs alembic upgrade before uvicorn
-│   │   ├── .env                # Credentials (not committed to prod)
-│   │   └── app/
+│   │   ├── .env                # Docker credentials (not committed)
+│   │   ├── .env.example        # Template for local dev (localhost URLs)
+│   │   └── app/                # Namespace package (no __init__.py)
 │   │       ├── main.py         # FastAPI lifespan, Prometheus instrumentation
 │   │       └── api/routers/voice.py
 │   │
 │   ├── worker/                 # RabbitMQ consumer
 │   │   ├── Dockerfile          # Same pattern as api Dockerfile
+│   │   ├── pyproject.toml      # uv workspace member (virtual, no deps)
 │   │   ├── entrypoint.sh
+│   │   ├── .env.example        # Template for local dev
 │   │   └── app/worker/main.py  # aio-pika consumer, DLQ after 2 retries
 │   │
 │   └── triton/                 # Triton Inference Server model configs
@@ -52,13 +58,27 @@ voicebot_service/
     └── grafana/                # Auto-provisioned datasources + dashboards
 ```
 
+## uv Workspace
+Three virtual workspace members share a single venv at repo root:
+- `shared/` — all runtime deps (`voicebot-shared`, `package=false`)
+- `services/api/` — no extra deps (`voicebot-api`, `package=false`)
+- `services/worker/` — no extra deps (`voicebot-worker`, `package=false`)
+
+Root `pyproject.toml` holds dev tools only (pytest, ruff, pyright). `uv sync --all-packages` installs everything into `.venv/`.
+
+## Import Resolution & Namespace Packages
+Both `shared/app/` and `services/api/app/` (and `services/worker/app/`) contribute to the same `app` namespace. There is **no `__init__.py`** at the `app/` level in any of them — Python 3.3+ namespace packages merge them transparently.
+
+- **Docker**: `COPY shared/app ./app/` then `COPY services/api/app ./app/` — physical merge into one dir. `app/` has no `__init__.py`, so namespace package. Works as before.
+- **Local**: `PYTHONPATH=shared:services/api` — Python merges `shared/app/` + `services/api/app/` at runtime. `from app.config import Settings` resolves to `shared/app/config.py`; `from app.main import app` resolves to `services/api/app/main.py`.
+- **IDE (pyright)**: `pyrightconfig.json extraPaths: ["shared", "services/api", "services/worker"]` — same merge.
+
 ## Docker Build Pattern
 Both `api` and `worker` use **layer-merge**: build context is repo root, shared code is copied first then service-specific code overlays it:
 ```dockerfile
 COPY shared/app ./app/          # base shared code
 COPY services/api/app ./app/    # overlays service-specific files (main.py, routers/)
 ```
-Imports use `from app.xxx` — works in Docker. IDE resolves via `pyrightconfig.json extraPaths: ["shared"]`.
 
 ## Services & Ports
 | Service    | Port(s)            | Notes |
@@ -92,28 +112,38 @@ Imports use `from app.xxx` — works in Docker. IDE resolves via `pyrightconfig.
 
 ## How to Start
 
+### Local development (debug individual services)
+```bash
+just install                                          # setup venv
+cp services/api/.env.example services/api/.env.local
+cp services/worker/.env.example services/worker/.env.local
+just infra-up                                         # postgres, rabbitmq, redis, seaweedfs
+just migrate                                          # run DB migrations
+just run-api                                          # terminal 1
+just run-worker                                       # terminal 2
+```
+
 ### Infrastructure only (no GPU needed)
 ```bash
-docker compose up -d postgres rabbitmq redis seaweedfs
+just infra-up
+# or: docker compose up -d postgres rabbitmq redis seaweedfs
 ```
 
 ### Full stack (requires GPU for Triton)
 ```bash
-docker compose up -d
+just up
+# or: docker compose up -d
 ```
 
 ### Rebuild after code changes
 ```bash
-docker compose build api worker
-docker compose up -d api worker
+just deploy
+# or: docker compose build api worker && docker compose up -d api worker
 ```
 
-### Start single service
-```bash
-docker compose up -d --force-recreate seaweedfs
-```
+## Env Files
 
-## Env File: services/api/.env
+### Docker (services/api/.env — used by both api and worker containers)
 ```
 TRITON_URL=triton:8000
 REDIS_URL=redis://redis:6379
@@ -123,20 +153,25 @@ SEAWEEDFS_ENDPOINT=http://seaweedfs:8333
 SEAWEEDFS_BUCKET=voicebot
 SEAWEEDFS_ACCESS_KEY=voicebot-access-key
 SEAWEEDFS_SECRET_KEY=voicebot-secret-key-change-in-prod
-API_KEYS=["nghia-dev"]
+API_KEYS=nghia-dev
 SYSTEM_PROMPT=Bạn là trợ lý AI giọng nói hữu ích. Trả lời ngắn gọn, tự nhiên bằng tiếng Việt.
 MAX_TOKENS=500
 ```
 
+### Local dev (.env.local — same vars, localhost URLs)
+Copy from `.env.example` in each service dir. These are gitignored (`*.env.local`).
+
 ## Common Debug Commands
 ```bash
-# Check all service status
-docker compose ps
+# All just commands
+just --list
 
-# Follow logs for a service
-docker compose logs -f api
-docker compose logs -f worker
-docker compose logs -f seaweedfs
+# Check service status
+just status
+
+# Follow logs
+just logs-api
+just logs-worker
 
 # Test API health
 curl http://localhost:8080/health
@@ -158,4 +193,5 @@ open http://localhost:3000   # user: admin / pass: admin
 - SeaweedFS `seaweedfs_data` volume can persist stale IAM config — delete volume to reset
 - `.dockerignore` at repo root excludes `opt/` (model weights ~GB) from build context
 - Triton requires NVIDIA GPU + CUDA drivers — skip if not available
-- `pyrightconfig.json extraPaths: ["shared"]` is required for IDE to resolve `from app.xxx` imports
+- `app/` is a **namespace package** (no `__init__.py` at top level) — required for local dev PYTHONPATH merge to work
+- `pyrightconfig.json extraPaths` must include all three service dirs for IDE to resolve imports correctly

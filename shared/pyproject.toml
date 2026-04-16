@@ -1,5 +1,5 @@
 [project]
-name = "voicebot-api"
+name = "voicebot-shared"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -20,3 +20,6 @@ dependencies = [
     "prometheus-client>=0.20.0",
     "slowapi>=0.1.9",
 ]
+
+[tool.uv]
+package = false

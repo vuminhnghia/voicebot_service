@@ -25,6 +25,9 @@ hf_cache/
 .env
 services/api/.env
 
+# Local dev overrides (copy from .env.example)
+*.env.local
+
 # IDE
 .idea/
 .vscode/

@@ -47,30 +47,44 @@ Client polls GET /voice/tasks/{task_id}
 ## Requirements
 
 - Docker + Docker Compose
-- NVIDIA GPU + CUDA drivers (for Triton)
+- [uv](https://docs.astral.sh/uv/) — Python package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- [just](https://just.systems/) — command runner (`cargo install just` or `brew install just`)
+- NVIDIA GPU + CUDA drivers (for Triton only)
 - Model weights in `opt/models/` (see below)
 
 ## Quick Start
 
-### 1. Prepare model weights
+### 1. Install dependencies
+```bash
+just install
+```
+
+### 2. Prepare env files
+```bash
+cp services/api/.env.example services/api/.env.local
+cp services/worker/.env.example services/worker/.env.local
+# Edit .env.local files if needed (defaults work out of the box)
+```
+
+### 3. Prepare model weights (requires GPU)
 ```bash
 mkdir -p opt/models/parakeet_asr opt/models/mms_tts_vie
-# Export models (requires GPU):
 # python services/triton/scripts/export_parakeet.py
 # python services/triton/scripts/export_mms_tts.py
 ```
 
-### 2. Start infrastructure (no GPU needed)
+### 4. Start infrastructure (no GPU needed)
 ```bash
-docker compose up -d postgres rabbitmq redis seaweedfs
+just infra-up
+just migrate
 ```
 
-### 3. Start full stack
+### 5. Start full stack (Docker)
 ```bash
-docker compose up -d
+just up
 ```
 
-### 4. Verify
+### 6. Verify
 ```bash
 curl http://localhost:8080/health
 # {"status": "ok"}
@@ -106,30 +120,47 @@ curl http://localhost:8080/voice/tasks/{task_id} \
 
 ## Development
 
-### Rebuild services after code change
+Run `just` to see all available commands.
+
+### Local development (hot-reload, no Docker for services)
 ```bash
-docker compose build api worker
-docker compose up -d api worker
+just infra-up       # start postgres, rabbitmq, redis, seaweedfs
+just run-api        # terminal 1 — FastAPI with hot-reload on :8080
+just run-worker     # terminal 2 — worker consuming from RabbitMQ
 ```
 
-### View logs
+### Docker workflow
 ```bash
-docker compose logs -f api
-docker compose logs -f worker
+just build          # rebuild api + worker images
+just deploy         # rebuild and restart api + worker
+just status         # show all service status
+just logs-api       # follow API logs
+just logs-worker    # follow Worker logs
 ```
 
-### Run DB migrations manually
+### Database migrations
 ```bash
-docker exec voicebot-api alembic upgrade head
+just migrate                    # apply pending migrations
+just migration "add new table"  # generate new migration
+```
+
+### Code quality
+```bash
+just lint       # ruff check
+just lint-fix   # ruff check --fix
+just typecheck  # pyright
+just test       # pytest
+just check      # lint + typecheck + test
 ```
 
 ## Monorepo Layout
 
 ```
-shared/          # Shared Python package (domain, use cases, adapters)
+justfile         # developer commands (just --list)
+shared/          # shared Python package (domain, use cases, adapters)
 services/api/    # FastAPI service
 services/worker/ # RabbitMQ consumer
 services/triton/ # Triton model configs
-infra/           # Config for postgres, rabbitmq, seaweedfs, prometheus, loki, grafana
-opt/models/      # Model weights (not in git)
+infra/           # config for postgres, rabbitmq, seaweedfs, prometheus, loki, grafana
+opt/models/      # model weights (not in git)
 ```
