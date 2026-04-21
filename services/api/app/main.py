@@ -84,6 +84,7 @@ async def lifespan(app: FastAPI):
     yield
 
     cleanup_task.cancel()
+    await storage.aclose()
     await queue.aclose()
     await cache.aclose()
     logger.info("api_shutdown")

@@ -122,7 +122,10 @@ async def main() -> None:
         try:
             await asyncio.Future()
         finally:
+            await asr.aclose()
             await llm.aclose()
+            await tts.aclose()
+            await storage.aclose()
             await cache.aclose()
             await publisher.aclose()
             logger.info("worker_shutdown")
