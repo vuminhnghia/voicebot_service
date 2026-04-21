@@ -1,12 +1,16 @@
 import asyncio
 import io
+import time
 
 import librosa
 import numpy as np
+import structlog
 import tritonclient.http as httpclient
 import tritonclient.http.aio as httpclient_aio
 
 from app.domain.ports.asr import ASRPort
+
+logger = structlog.get_logger(__name__)
 
 
 class TritonASRAdapter(ASRPort):
@@ -29,16 +33,26 @@ class TritonASRAdapter(ASRPort):
         return [audio_input, sr_input]
 
     async def transcribe(self, audio_bytes: bytes) -> str:
-        loop = asyncio.get_running_loop()
-        inputs = await loop.run_in_executor(None, self._prepare_inputs, audio_bytes)
+        log = logger.bind(audio_bytes=len(audio_bytes))
+        log.debug("asr_start")
+        t0 = time.monotonic()
+        try:
+            loop = asyncio.get_running_loop()
+            inputs = await loop.run_in_executor(None, self._prepare_inputs, audio_bytes)
 
-        result = await self._client.infer(
-            "parakeet_asr",
-            inputs=inputs,
-            outputs=[httpclient.InferRequestedOutput("transcription")],
-        )
-        raw = result.as_numpy("transcription").flatten()[0]
-        return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+            result = await self._client.infer(
+                "parakeet_asr",
+                inputs=inputs,
+                outputs=[httpclient.InferRequestedOutput("transcription")],
+            )
+            raw = result.as_numpy("transcription").flatten()[0]
+            transcript = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+        except Exception as exc:
+            log.error("asr_error", duration_s=round(time.monotonic() - t0, 3), error=str(exc))
+            raise
+
+        log.info("asr_complete", duration_s=round(time.monotonic() - t0, 3), transcript_len=len(transcript))
+        return transcript
 
     async def aclose(self) -> None:
         await self._client.close()

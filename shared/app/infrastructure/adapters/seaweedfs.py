@@ -1,10 +1,13 @@
 from typing import Any
 
 import aioboto3
+import structlog
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from app.domain.ports.object_storage import ObjectStoragePort
+
+logger = structlog.get_logger(__name__)
 
 
 class SeaweedFSAdapter(ObjectStoragePort):
@@ -45,30 +48,46 @@ class SeaweedFSAdapter(ObjectStoragePort):
             await self._s3.head_bucket(Bucket=self._bucket)
         except ClientError:
             await self._s3.create_bucket(Bucket=self._bucket)
+            logger.info("storage_bucket_created", bucket=self._bucket)
 
     async def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         await self._init_clients()
-        await self._s3.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)
+        try:
+            await self._s3.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)
+        except Exception as exc:
+            logger.error("storage_put_error", key=key, size=len(data), error=str(exc))
+            raise
 
     async def get(self, key: str) -> bytes | None:
         await self._init_clients()
         try:
             resp = await self._s3.get_object(Bucket=self._bucket, Key=key)
             return await resp["Body"].read()
-        except ClientError:
+        except ClientError as exc:
+            error_code = exc.response["Error"]["Code"]
+            if error_code not in ("NoSuchKey", "404"):
+                logger.error("storage_get_error", key=key, error_code=error_code, error=str(exc))
             return None
 
     async def delete(self, key: str) -> None:
         await self._init_clients()
-        await self._s3.delete_object(Bucket=self._bucket, Key=key)
+        try:
+            await self._s3.delete_object(Bucket=self._bucket, Key=key)
+        except Exception as exc:
+            logger.error("storage_delete_error", key=key, error=str(exc))
+            raise
 
     async def presign(self, key: str, ttl: int = 3600) -> str:
         await self._init_clients()
-        return await self._presign_s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": self._bucket, "Key": key},
-            ExpiresIn=ttl,
-        )
+        try:
+            return await self._presign_s3.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": self._bucket, "Key": key},
+                ExpiresIn=ttl,
+            )
+        except Exception as exc:
+            logger.error("storage_presign_error", key=key, error=str(exc))
+            raise
 
     async def aclose(self) -> None:
         if self._presign_s3 and self._presign_s3 is not self._s3:

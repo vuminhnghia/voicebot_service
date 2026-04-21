@@ -2,8 +2,11 @@ import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 
+import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
+
+logger = structlog.get_logger(__name__)
 
 from app.application.use_cases.text_pipeline import TextPipelineUseCase
 from app.application.use_cases.voice_pipeline import VoicePipelineUseCase
@@ -138,6 +141,9 @@ async def stream_task_events(
                 yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
         except asyncio.CancelledError:
             return
+        except Exception as exc:
+            logger.error("sse_stream_error", task_id=task_id, error=str(exc))
+            yield f"event: error\ndata: {json.dumps({'type': 'error', 'message': 'Stream interrupted'})}\n\n"
 
     return StreamingResponse(
         event_generator(),
